@@ -49,6 +49,10 @@
   }
   .tile:hover { filter: brightness(1.06); }
   .tile:active { transform: scale(.96); }
+  .tile.can { cursor: pointer; box-shadow: inset 0 -3px 0 rgba(0,0,0,.18), 0 0 0 2px rgba(125,211,252,.35); }
+  .tile:not(.can) { cursor: default; }
+  .tile:not(.can):hover { filter: none; }
+  .tile:not(.can):active { transform: none; }
   .tile.done { background: linear-gradient(160deg, #fde68a, #fbbf24); }
   .tile.blank {
     background: transparent;
@@ -60,6 +64,7 @@
   .tile.blank:hover { filter: none; }
 
   .bar { display: flex; gap: 8px; margin-top: 12px; }
+  .hint { margin: 10px 2px 0; color: #64748b; font-size: 12px; }
   button {
     font: inherit; cursor: pointer; border: 0; border-radius: 10px;
     padding: 9px 18px; color: #21160a; font-weight: 700;
@@ -99,6 +104,7 @@
       <button id="shuffleBtn" class="ghost">重新打乱</button>
       <button id="restartBtn">重开一局</button>
     </div>
+    <p class="hint">和空格在同一行/同一列的块都能点，中间一串会整体推过去</p>
   </div>
 
   <script src="game-kit.js"></script>
@@ -171,6 +177,10 @@
       function render() {
         boardEl.querySelectorAll(".tile").forEach((el) => el.remove());
 
+        const blank = board.indexOf(0);
+        const bRow = Math.floor(blank / SIZE);
+        const bCol = blank % SIZE;
+
         board.forEach((value, index) => {
           const tile = document.createElement("button");
           tile.type = "button";
@@ -183,6 +193,11 @@
             tile.textContent = String(value);
             tile.dataset.index = String(index);
             if (value === index + 1) tile.classList.add("done");
+
+            const sameLine =
+              Math.floor(index / SIZE) === bRow || index % SIZE === bCol;
+            if (sameLine) tile.classList.add("can");
+
             tile.addEventListener("click", () => tryMove(index));
           }
 
@@ -194,10 +209,26 @@
 
       function tryMove(index) {
         const blank = board.indexOf(0);
-        if (!neighbors(blank).includes(index)) return;
+        if (index === blank) return;
 
-        board[blank] = board[index];
+        const bRow = Math.floor(blank / SIZE);
+        const bCol = blank % SIZE;
+        const tRow = Math.floor(index / SIZE);
+        const tCol = index % SIZE;
+
+        // 必须和空格在同一行或同一列，才能把中间那一串整体推过去
+        if (bRow !== tRow && bCol !== tCol) return;
+
+        const step = bRow === tRow
+          ? Math.sign(bCol - tCol)
+          : Math.sign(bRow - tRow) * SIZE;
+
+        // 从空格往回倒着挪：1 2 3 X 推 1 → X 1 2 3
+        for (let cur = blank; cur !== index; cur -= step) {
+          board[cur] = board[cur - step];
+        }
         board[index] = 0;
+
         moves += 1;
         movesEl.textContent = String(moves);
 
