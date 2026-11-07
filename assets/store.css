@@ -63,6 +63,29 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 }
 .brand span { color: var(--gold); }
 
+.version {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  vertical-align: 2px;
+}
+
+.footer {
+  margin: 28px auto 0;
+  max-width: 1180px;
+  padding: 14px 28px 24px;
+  color: var(--muted);
+  font-size: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .wallet {
   margin-left: auto;
   display: flex;
