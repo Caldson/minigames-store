@@ -1,4 +1,4 @@
-/* Minigame Store —— 商店逻辑
+/* MiniGames —— 商店逻辑
  *
  * 只做三件事：
  *   1. 用 vtx-sdk.js 在浏览器里登录 / 读写 data["minigames"] 金币存档

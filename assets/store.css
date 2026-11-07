@@ -61,7 +61,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
   font-weight: 800;
   letter-spacing: .3px;
 }
-.brand span { color: var(--gold); }
+.brand .accent { color: var(--gold); }
 
 .version {
   display: inline-block;
