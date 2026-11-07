@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>数字华容道 · Minigame Store</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(900px 500px at 50% -20%, #16294a, #070c17 70%);
+    font: 15px/1.5 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    color: #e2e8f0;
+  }
+  .shell { width: min(460px, 94vw); padding: 18px; }
+  .head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
+  .head h1 { margin: 0; font-size: 20px; }
+  .head .spacer { margin-left: auto; }
+  .stat { color: #94a3b8; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .stat b { color: #fbbf24; font-size: 16px; }
+
+  .board {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    background: #0f172a;
+    border: 1px solid #1e2b45;
+    border-radius: 16px;
+    padding: 10px;
+  }
+  .tile {
+    aspect-ratio: 1 / 1;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 10px;
+    font: 700 22px/1 Consolas, "Microsoft YaHei UI", monospace;
+    color: #0b1220;
+    background: linear-gradient(160deg, #cfe8ff, #7dd3fc);
+    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18);
+    transition: transform .1s ease, filter .15s ease;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tile:hover { filter: brightness(1.06); }
+  .tile:active { transform: scale(.96); }
+  .tile.done { background: linear-gradient(160deg, #fde68a, #fbbf24); }
+  .tile.blank {
+    background: transparent;
+    box-shadow: none;
+    border: 1px dashed #24344f;
+    cursor: default;
+    pointer-events: none;
+  }
+  .tile.blank:hover { filter: none; }
+
+  .bar { display: flex; gap: 8px; margin-top: 12px; }
+  button {
+    font: inherit; cursor: pointer; border: 0; border-radius: 10px;
+    padding: 9px 18px; color: #21160a; font-weight: 700;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  }
+  button.ghost { background: transparent; border: 1px solid #2b3d5f; color: #cbd5e1; font-weight: 500; }
+  button:active { transform: translateY(1px); }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    background: rgba(5, 10, 20, .8);
+    border-radius: 16px;
+    text-align: center;
+    padding: 20px;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 { margin: 0 0 6px; font-size: 22px; }
+  .overlay .big { font-size: 42px; font-weight: 800; color: #fbbf24; }
+  .overlay p { margin: 2px 0 16px; color: #94a3b8; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <div class="head">
+      <h1>数字华容道</h1>
+      <div class="spacer"></div>
+      <span class="stat">步数 <b id="moves">0</b></span>
+      <span class="stat">时间 <b id="clock">0s</b></span>
+    </div>
+
+    <div class="board" id="board">
+      <div class="overlay hidden" id="overlay"></div>
+    </div>
+
+    <div class="bar">
+      <button id="shuffleBtn" class="ghost">重新打乱</button>
+      <button id="restartBtn">重开一局</button>
+    </div>
+  </div>
+
+  <script src="game-kit.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const SIZE = 4;
+      const boardEl = document.getElementById("board");
+      const overlay = document.getElementById("overlay");
+      const movesEl = document.getElementById("moves");
+      const clockEl = document.getElementById("clock");
+
+      let board = [];        // 16 个数字，0 表示空格
+      let moves = 0;
+      let startedAt = 0;
+      let timer = null;
+      let playing = false;
+      let solved = false;
+
+      const solvedBoard = () => {
+        const out = [];
+        for (let i = 0; i < SIZE * SIZE - 1; i++) out.push(i + 1);
+        out.push(0);
+        return out;
+      };
+
+      const isSolved = () => board.every((value, index) => value === solvedBoard()[index]);
+
+      /* ------------------------------------------------------------ 打乱 */
+
+      function shuffle() {
+        board = solvedBoard();
+        let blank = SIZE * SIZE - 1;
+        let previous = -1;
+
+        for (let i = 0; i < 400; i++) {
+          const options = neighbors(blank).filter((index) => index !== previous);
+          const pick = options[Math.floor(Math.random() * options.length)];
+          board[blank] = board[pick];
+          board[pick] = 0;
+          previous = blank;
+          blank = pick;
+        }
+
+        if (isSolved()) return shuffle();
+        moves = 0;
+        solved = false;
+        playing = false;
+        startedAt = 0;
+        stopTimer();
+        render();
+        clockEl.textContent = "0s";
+        movesEl.textContent = "0";
+      }
+
+      function neighbors(index) {
+        const row = Math.floor(index / SIZE);
+        const col = index % SIZE;
+        const out = [];
+        if (row > 0) out.push(index - SIZE);
+        if (row < SIZE - 1) out.push(index + SIZE);
+        if (col > 0) out.push(index - 1);
+        if (col < SIZE - 1) out.push(index + 1);
+        return out;
+      }
+
+      /* ------------------------------------------------------------ 渲染 */
+
+      function render() {
+        boardEl.querySelectorAll(".tile").forEach((el) => el.remove());
+
+        board.forEach((value, index) => {
+          const tile = document.createElement("button");
+          tile.type = "button";
+          tile.className = "tile";
+
+          if (value === 0) {
+            tile.classList.add("blank");
+            tile.textContent = "";
+          } else {
+            tile.textContent = String(value);
+            tile.dataset.index = String(index);
+            if (value === index + 1) tile.classList.add("done");
+            tile.addEventListener("click", () => tryMove(index));
+          }
+
+          boardEl.appendChild(tile);
+        });
+      }
+
+      /* ------------------------------------------------------------ 移动 */
+
+      function tryMove(index) {
+        const blank = board.indexOf(0);
+        if (!neighbors(blank).includes(index)) return;
+
+        board[blank] = board[index];
+        board[index] = 0;
+        moves += 1;
+        movesEl.textContent = String(moves);
+
+        if (!playing) {
+          playing = true;
+          startedAt = Date.now();
+          startTimer();
+        }
+
+        render();
+
+        if (isSolved()) finish();
+      }
+
+      /* ------------------------------------------------------------ 计时 */
+
+      function startTimer() {
+        stopTimer();
+        timer = setInterval(() => {
+          clockEl.textContent = `${elapsedSeconds()}s`;
+        }, 250);
+      }
+
+      function stopTimer() {
+        if (timer) clearInterval(timer);
+        timer = null;
+      }
+
+      function elapsedSeconds() {
+        return startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+      }
+
+      /* ------------------------------------------------------------ 结束 */
+
+      function finish() {
+        solved = true;
+        playing = false;
+        stopTimer();
+
+        const seconds = elapsedSeconds();
+        const score = Math.max(30, Math.min(500, Math.round(600 - moves * 3 - seconds * 2)));
+
+        overlay.innerHTML = `
+          <div>
+            <h2>拼好了！</h2>
+            <div class="big">+${score}</div>
+            <p>${moves} 步 · ${seconds} 秒</p>
+            <button id="againBtn">再来一局</button>
+            ${MG.embedded() ? '<button id="backBtn" class="ghost">返回商店</button>' : ""}
+          </div>`;
+        overlay.classList.remove("hidden");
+
+        document.getElementById("againBtn").addEventListener("click", () => {
+          overlay.classList.add("hidden");
+          shuffle();
+        });
+        const back = document.getElementById("backBtn");
+        if (back) back.addEventListener("click", () => MG.close());
+
+        MG.report("klotski", score, { moves, seconds });
+      }
+
+      /* ------------------------------------------------------------ 启动 */
+
+      document.getElementById("shuffleBtn").addEventListener("click", () => {
+        overlay.classList.add("hidden");
+        shuffle();
+      });
+      document.getElementById("restartBtn").addEventListener("click", () => {
+        overlay.classList.add("hidden");
+        shuffle();
+      });
+
+      shuffle();
+    })();
+  </script>
+</body>
+</html>

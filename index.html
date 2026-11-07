@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Minigame Store · 小游戏商店</title>
+  <meta name="description" content="玩小游戏赚金币，1000 金币兑换 1 红包（1.00 VTX）。" />
+  <link rel="stylesheet" href="assets/store.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Minigame <span>Store</span></div>
+    <div class="wallet">
+      <span class="pill" title="金币">🪙 <b id="coins">—</b></span>
+      <span class="pill" title="VTX 余额">VTX <b id="balance">—</b></span>
+      <button id="redeemBtn" class="ghost" disabled>兑换红包</button>
+      <button id="loginBtn" class="primary">登录</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>挑一款，玩一局</h1>
+      <p>玩小游戏赚金币，金币存进你的 Vitual XRing 账户，换设备也能接着攒。</p>
+      <div class="rate">汇率：<b>1000 金币 = 1 红包 = 1.00 VTX</b></div>
+    </section>
+
+    <section id="grid" class="grid"></section>
+    <div id="empty" class="empty hidden">正在加载游戏目录…</div>
+  </main>
+
+  <div id="stage" class="stage hidden">
+    <div class="stage-inner">
+      <div class="stage-head">
+        <span id="stageTitle">游戏</span>
+        <button id="stageClose" class="ghost">返回商店</button>
+      </div>
+      <iframe id="stageFrame" title="游戏" allow="autoplay"></iframe>
+    </div>
+  </div>
+
+  <div id="loginModal" class="modal hidden">
+    <div class="modal-inner">
+      <div class="modal-head">
+        <span>登录 Vitual XRing</span>
+        <button id="loginClose" class="ghost">关闭</button>
+      </div>
+      <iframe id="loginFrame" title="登录"></iframe>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="assets/store.js"></script>
+</body>
+</html>

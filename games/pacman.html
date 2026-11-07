@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>吃豆人 · Minigame Store</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(900px 500px at 50% -20%, #16294a, #070c17 70%);
+    font: 15px/1.5 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    color: #e2e8f0;
+    overflow: hidden;
+  }
+  .shell { position: relative; width: min(440px, 94vw); }
+  .hud {
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 0 4px 8px; color: #94a3b8; font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud b { color: #fbbf24; font-size: 17px; }
+  .hud .spacer { margin-left: auto; }
+  canvas { display: block; width: 100%; height: auto; border-radius: 14px; }
+  .overlay {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    background: rgba(5, 10, 20, .82);
+    border-radius: 14px;
+    text-align: center;
+    padding: 24px;
+    backdrop-filter: blur(3px);
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 { margin: 0 0 8px; font-size: 22px; }
+  .overlay p { margin: 0 0 18px; color: #94a3b8; font-size: 13px; }
+  .overlay .big { font-size: 40px; font-weight: 800; color: #fbbf24; }
+  button {
+    font: inherit; cursor: pointer; border: 0; border-radius: 10px;
+    padding: 10px 22px; color: #21160a; font-weight: 700;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  }
+  button.ghost { background: transparent; border: 1px solid #2b3d5f; color: #cbd5e1; font-weight: 500; margin-left: 8px; }
+  button:active { transform: translateY(1px); }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hud">
+      <span>得分 <b id="score">0</b></span>
+      <span class="spacer"></span>
+      <span>剩余豆子 <b id="left">0</b></span>
+    </div>
+    <canvas id="board" width="420" height="420"></canvas>
+    <div class="overlay" id="overlay">
+      <div>
+        <h1>吃豆人</h1>
+        <p>方向键 / WASD 移动<br />吃掉全部豆子，别被幽灵抓到</p>
+        <button id="startBtn">开始</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game-kit.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const COLS = 15, ROWS = 15, CELL = 28;
+      const W = COLS * CELL, H = ROWS * CELL;
+      const STEP_MS = 125;          // 玩家每格耗时
+      const GHOST_MS = 235;         // 幽灵每格耗时
+      const GOD_MS = 1200;          // 开局无敌
+
+      const canvas = document.getElementById("board");
+      const ctx = canvas.getContext("2d");
+      const overlay = document.getElementById("overlay");
+      const scoreEl = document.getElementById("score");
+      const leftEl = document.getElementById("left");
+
+      const player = { r: 1, c: 1, fromR: 1, fromC: 1, t: 1, dir: null };
+      let ghosts = [];
+      let grid = [];
+      let pellets = new Set();
+      let pelletsLeft = 0;
+      let score = 0;
+      let phase = "idle";           // idle | playing | dead | win
+      let wantDir = null;
+      let startedAt = 0;
+      let last = 0;
+      let raf = 0;
+
+      const DIRS = {
+        up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1],
+      };
+
+      /* ------------------------------------------------------------ 迷宫 */
+
+      function buildGrid() {
+        const g = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+        const stack = [[1, 1]];
+        g[1][1] = 0;
+
+        while (stack.length) {
+          const [r, c] = stack[stack.length - 1];
+          const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]].sort(() => Math.random() - 0.5);
+          let moved = false;
+
+          for (const [dr, dc] of dirs) {
+            const nr = r + dr, nc = c + dc;
+            if (nr > 0 && nr < ROWS - 1 && nc > 0 && nc < COLS - 1 && g[nr][nc] === 1) {
+              g[r + dr / 2][c + dc / 2] = 0;
+              g[nr][nc] = 0;
+              stack.push([nr, nc]);
+              moved = true;
+              break;
+            }
+          }
+          if (!moved) stack.pop();
+        }
+
+        // 打通一些墙，制造回环，避免全是死胡同
+        for (let r = 1; r < ROWS - 1; r++) {
+          for (let c = 1; c < COLS - 1; c++) {
+            if (g[r][c] !== 1) continue;
+            const horizontal = g[r][c - 1] === 0 && g[r][c + 1] === 0;
+            const vertical = g[r - 1][c] === 0 && g[r + 1][c] === 0;
+            if ((horizontal || vertical) && Math.random() < 0.14) g[r][c] = 0;
+          }
+        }
+
+        return g;
+      }
+
+      function reset() {
+        grid = buildGrid();
+
+        player.r = player.c = player.fromR = player.fromC = 1;
+        player.t = 1;
+        player.dir = null;
+        wantDir = null;
+
+        const spawns = [[13, 13], [13, 1], [1, 13]];
+        const hues = ["#f87171", "#f472b6", "#22d3ee"];
+        ghosts = spawns.map(([r, c], index) => ({
+          r, c, fromR: r, fromC: c, t: 1, hue: hues[index],
+        }));
+
+        pellets = new Set();
+        pelletsLeft = 0;
+        const reserved = new Set(["1,1", "13,13", "13,1", "1,13"]);
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (grid[r][c] === 0 && !reserved.has(`${r},${c}`)) {
+              pellets.add(`${r},${c}`);
+              pelletsLeft += 1;
+            }
+          }
+        }
+
+        score = 0;
+        scoreEl.textContent = "0";
+        leftEl.textContent = String(pelletsLeft);
+        startedAt = 0;
+      }
+
+      /* ------------------------------------------------------------ 工具 */
+
+      const open = (r, c) =>
+        r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c] === 0;
+
+      function positionOf(entity) {
+        const fromR = entity.fromR ?? entity.r;
+        const fromC = entity.fromC ?? entity.c;
+        return {
+          x: (fromC + (entity.c - fromC) * entity.t + 0.5) * CELL,
+          y: (fromR + (entity.r - fromR) * entity.t + 0.5) * CELL,
+        };
+      }
+
+      /* ------------------------------------------------------------ 输入 */
+
+      function onKey(event) {
+        const key = event.key.toLowerCase();
+        const map = {
+          arrowup: "up", w: "up",
+          arrowdown: "down", s: "down",
+          arrowleft: "left", a: "left",
+          arrowright: "right", d: "right",
+        };
+        const dir = map[key];
+        if (!dir) return;
+        event.preventDefault();
+        wantDir = dir;
+      }
+      window.addEventListener("keydown", onKey);
+
+      /* ------------------------------------------------------------ 主循环 */
+
+      function loop(now) {
+        if (phase !== "playing") return;
+        const dt = Math.min(60, now - last);
+        last = now;
+
+        stepPlayer(dt);
+        stepGhosts(dt);
+
+        if (phase === "playing" && now - startedAt > GOD_MS) {
+          for (const ghost of ghosts) {
+            const a = positionOf(player);
+            const b = positionOf(ghost);
+            if (Math.hypot(a.x - b.x, a.y - b.y) < CELL * 0.6) {
+              die();
+              return;
+            }
+          }
+        }
+
+        draw();
+        if (phase === "playing") raf = requestAnimationFrame(loop);
+      }
+
+      function stepPlayer(dt) {
+        if (player.t < 1) {
+          player.t = Math.min(1, player.t + dt / STEP_MS);
+          if (player.t >= 1) {
+            player.t = 1;
+            player.fromR = player.r;
+            player.fromC = player.c;
+            eat();
+          }
+          return;
+        }
+
+        if (!wantDir) return;
+        const [dr, dc] = DIRS[wantDir];
+        const nr = player.r + dr, nc = player.c + dc;
+        if (!open(nr, nc)) return;
+
+        player.dir = wantDir;
+        wantDir = null;
+        player.fromR = player.r;
+        player.fromC = player.c;
+        player.r = nr;
+        player.c = nc;
+        player.t = 0;
+      }
+
+      function eat() {
+        const key = `${player.r},${player.c}`;
+        if (!pellets.has(key)) return;
+
+        pellets.delete(key);
+        pelletsLeft -= 1;
+        score += 1;
+        scoreEl.textContent = String(score);
+        leftEl.textContent = String(pelletsLeft);
+
+        if (pelletsLeft === 0) win();
+      }
+
+      function stepGhosts(dt) {
+        for (const ghost of ghosts) {
+          if (ghost.t < 1) {
+            ghost.t = Math.min(1, ghost.t + dt / GHOST_MS);
+            if (ghost.t >= 1) {
+              ghost.t = 1;
+              ghost.fromR = ghost.r;
+              ghost.fromC = ghost.c;
+            }
+            continue;
+          }
+
+          const options = [];
+          for (const [name, [dr, dc]] of Object.entries(DIRS)) {
+            const nr = ghost.r + dr, nc = ghost.c + dc;
+            if (open(nr, nc)) options.push({ name, nr, nc });
+          }
+          if (!options.length) continue;
+
+          let choice;
+          if (Math.random() < 0.28) {
+            choice = options[Math.floor(Math.random() * options.length)];
+          } else {
+            options.sort((a, b) => {
+              const da = Math.abs(a.nr - player.r) + Math.abs(a.nc - player.c);
+              const db = Math.abs(b.nr - player.r) + Math.abs(b.nc - player.c);
+              return da - db;
+            });
+            choice = options[0];
+          }
+
+          ghost.fromR = ghost.r;
+          ghost.fromC = ghost.c;
+          ghost.r = choice.nr;
+          ghost.c = choice.nc;
+          ghost.t = 0;
+        }
+      }
+
+      /* ------------------------------------------------------------ 结束 */
+
+      function die() {
+        phase = "dead";
+        cancelAnimationFrame(raf);
+        showEnd("被抓住了", score, false);
+        MG.report("pacman", score);
+      }
+
+      function win() {
+        phase = "win";
+        cancelAnimationFrame(raf);
+        const total = score + 10;
+        score = total;
+        scoreEl.textContent = String(total);
+        showEnd("全部吃完了！", total, true);
+        MG.report("pacman", total);
+      }
+
+      function showEnd(title, points, won) {
+        overlay.innerHTML = `
+          <div>
+            <h1>${title}</h1>
+            <div class="big">+${points}</div>
+            <p>${won ? "通关奖励 +10" : "再来一局试试"}</p>
+            <button id="againBtn">再来一局</button>
+            ${MG.embedded() ? '<button id="backBtn" class="ghost">返回商店</button>' : ""}
+          </div>`;
+        overlay.classList.remove("hidden");
+        document.getElementById("againBtn").addEventListener("click", start);
+        const back = document.getElementById("backBtn");
+        if (back) back.addEventListener("click", () => MG.close());
+      }
+
+      /* ------------------------------------------------------------ 绘制 */
+
+      function draw() {
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#080e1b";
+        ctx.fillRect(0, 0, W, H);
+
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (grid[r][c] !== 1) continue;
+            ctx.fillStyle = "#16274a";
+            roundRect(c * CELL + 1, r * CELL + 1, CELL - 2, CELL - 2, 6);
+            ctx.fill();
+          }
+        }
+
+        ctx.fillStyle = "#fbbf24";
+        for (const key of pellets) {
+          const [r, c] = key.split(",").map(Number);
+          ctx.beginPath();
+          ctx.arc((c + 0.5) * CELL, (r + 0.5) * CELL, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        const p = positionOf(player);
+        const mouth = player.t < 1 ? 0.35 : 0;
+        ctx.fillStyle = "#fde047";
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.arc(p.x, p.y, CELL * 0.38, mouth * Math.PI, (2 - mouth) * Math.PI);
+        ctx.closePath();
+        ctx.fill();
+
+        for (const ghost of ghosts) {
+          const g = positionOf(ghost);
+          ctx.fillStyle = ghost.hue;
+          ctx.beginPath();
+          ctx.arc(g.x, g.y, CELL * 0.36, Math.PI, 0);
+          ctx.lineTo(g.x + CELL * 0.36, g.y + CELL * 0.3);
+          ctx.lineTo(g.x - CELL * 0.36, g.y + CELL * 0.3);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(g.x - 5, g.y - 4, 3.4, 0, Math.PI * 2);
+          ctx.arc(g.x + 5, g.y - 4, 3.4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#0b1220";
+          ctx.beginPath();
+          ctx.arc(g.x - 5, g.y - 4, 1.6, 0, Math.PI * 2);
+          ctx.arc(g.x + 5, g.y - 4, 1.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      function roundRect(x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+
+      /* ------------------------------------------------------------ 启动 */
+
+      function start() {
+        reset();
+        phase = "playing";
+        overlay.classList.add("hidden");
+        last = performance.now();
+        startedAt = last;
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(loop);
+      }
+
+      document.getElementById("startBtn").addEventListener("click", start);
+      reset();
+      draw();
+    })();
+  </script>
+</body>
+</html>

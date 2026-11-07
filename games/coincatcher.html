@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>接金币 · Minigame Store</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(900px 500px at 50% -20%, #16294a, #070c17 70%);
+    font: 15px/1.5 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+    color: #e2e8f0;
+    overflow: hidden;
+  }
+  .shell { position: relative; width: min(520px, 96vw); }
+  canvas { display: block; width: 100%; height: auto; border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+  .overlay {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    background: rgba(5, 10, 20, .74);
+    border-radius: 16px;
+    backdrop-filter: blur(3px);
+    text-align: center;
+    padding: 24px;
+  }
+  .overlay.hidden { display: none; }
+  .panel h1 { margin: 0 0 8px; font-size: 24px; letter-spacing: .5px; }
+  .panel p { margin: 0 0 18px; color: #94a3b8; font-size: 14px; }
+  .panel .big { font-size: 44px; font-weight: 800; color: #fbbf24; margin: 4px 0 2px; }
+  button {
+    font: inherit; cursor: pointer; border: 0; border-radius: 10px;
+    padding: 10px 22px; color: #21160a; font-weight: 700;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  }
+  button.ghost { background: transparent; border: 1px solid #2b3d5f; color: #cbd5e1; font-weight: 500; margin-left: 8px; }
+  button:active { transform: translateY(1px); }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <canvas id="board" width="520" height="400"></canvas>
+    <div id="overlay" class="overlay">
+      <div class="panel">
+        <h1>接金币</h1>
+        <p>← → 或移动鼠标控制篮子<br />45 秒内接住尽可能多的金币</p>
+        <button id="startBtn">开始</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game-kit.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const W = 520, H = 400, DURATION = 45;
+      const canvas = document.getElementById("board");
+      const ctx = canvas.getContext("2d");
+      const overlay = document.getElementById("overlay");
+      const startBtn = document.getElementById("startBtn");
+
+      const basket = { x: W / 2, w: 92, h: 16, y: H - 42 };
+      const keys = new Set();
+
+      const state = {
+        phase: "idle",          // idle | playing | done
+        time: 0,
+        score: 0,
+        combo: 0,
+        coins: [],
+        pops: [],
+        spawnIn: 0.4,
+        raf: 0,
+        last: 0,
+      };
+
+      const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+      const rand = (lo, hi) => lo + Math.random() * (hi - lo);
+
+      /* ------------------------------------------------------------ 生命期 */
+
+      function reset() {
+        state.time = 0;
+        state.score = 0;
+        state.combo = 0;
+        state.coins = [];
+        state.pops = [];
+        state.spawnIn = 0.4;
+        basket.x = W / 2;
+      }
+
+      function start() {
+        reset();
+        state.phase = "playing";
+        overlay.classList.add("hidden");
+        state.last = performance.now();
+        cancelAnimationFrame(state.raf);
+        state.raf = requestAnimationFrame(loop);
+      }
+
+      function end() {
+        state.phase = "done";
+        cancelAnimationFrame(state.raf);
+        showResult();
+        MG.report("coincatcher", state.score);
+      }
+
+      function showResult() {
+        const best = state.score;
+        overlay.innerHTML = `
+          <div class="panel">
+            <h1>时间到</h1>
+            <div class="big">${best}</div>
+            <p>枚金币</p>
+            <button id="againBtn">再来一局</button>
+            ${MG.embedded() ? '<button id="backBtn" class="ghost">返回商店</button>' : ""}
+          </div>`;
+        overlay.classList.remove("hidden");
+        document.getElementById("againBtn").addEventListener("click", start);
+        const back = document.getElementById("backBtn");
+        if (back) back.addEventListener("click", () => MG.close());
+      }
+
+      /* ------------------------------------------------------------ 主循环 */
+
+      function loop(now) {
+        if (state.phase !== "playing") return;
+        const dt = Math.min(0.05, (now - state.last) / 1000);
+        state.last = now;
+
+        step(dt);
+        draw();
+
+        if (state.phase === "playing") state.raf = requestAnimationFrame(loop);
+      }
+
+      function step(dt) {
+        state.time += dt;
+        if (state.time >= DURATION) {
+          state.time = DURATION;
+          draw();
+          end();
+          return;
+        }
+
+        const progress = state.time / DURATION;
+
+        // 篮子
+        if (keys.has("ArrowLeft")) basket.x -= 460 * dt;
+        if (keys.has("ArrowRight")) basket.x += 460 * dt;
+        basket.x = clamp(basket.x, basket.w / 2, W - basket.w / 2);
+
+        // 生成
+        state.spawnIn -= dt;
+        if (state.spawnIn <= 0) {
+          state.coins.push({
+            x: rand(24, W - 24),
+            y: -14,
+            vy: rand(140, 200) + 110 * progress,
+            spin: rand(0, Math.PI * 2),
+          });
+          state.spawnIn = Math.max(0.2, 0.62 - 0.34 * progress + rand(-0.06, 0.1));
+        }
+
+        // 下落 + 判定
+        const top = basket.y;
+        const left = basket.x - basket.w / 2;
+        const right = basket.x + basket.w / 2;
+
+        for (let i = state.coins.length - 1; i >= 0; i--) {
+          const coin = state.coins[i];
+          coin.y += coin.vy * dt;
+          coin.spin += dt * 4;
+
+          const hit =
+            coin.y + 9 >= top &&
+            coin.y - 9 <= top + basket.h + 4 &&
+            coin.x >= left - 6 &&
+            coin.x <= right + 6;
+
+          if (hit) {
+            state.coins.splice(i, 1);
+            state.score += 1;
+            state.combo += 1;
+            if (state.combo % 10 === 0) state.score += 1;   // 每 10 连击额外 +1
+            state.pops.push({ x: coin.x, y: top - 6, life: 0.7, text: "+1" });
+            continue;
+          }
+
+          if (coin.y > H + 20) {
+            state.coins.splice(i, 1);
+            state.combo = 0;
+          }
+        }
+
+        for (let i = state.pops.length - 1; i >= 0; i--) {
+          state.pops[i].life -= dt;
+          state.pops[i].y -= 26 * dt;
+          if (state.pops[i].life <= 0) state.pops.splice(i, 1);
+        }
+      }
+
+      /* ------------------------------------------------------------ 绘制 */
+
+      function draw() {
+        const bg = ctx.createLinearGradient(0, 0, 0, H);
+        bg.addColorStop(0, "#0b1220");
+        bg.addColorStop(1, "#0f1c33");
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, W, H);
+
+        // 背景网格
+        ctx.strokeStyle = "rgba(56, 189, 248, .05)";
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= W; x += 40) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+        }
+        for (let y = 0; y <= H; y += 40) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+
+        // 地板
+        ctx.fillStyle = "rgba(17, 28, 51, .9)";
+        ctx.fillRect(0, H - 8, W, 8);
+
+        // 金币
+        for (const coin of state.coins) {
+          const squash = Math.abs(Math.cos(coin.spin));
+          ctx.save();
+          ctx.translate(coin.x, coin.y);
+          ctx.scale(Math.max(0.25, squash), 1);
+          const grad = ctx.createRadialGradient(-3, -3, 1, 0, 0, 9);
+          grad.addColorStop(0, "#fde68a");
+          grad.addColorStop(1, "#f59e0b");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(0, 0, 9, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#b45309";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // 篮子
+        const x0 = basket.x - basket.w / 2;
+        const grad = ctx.createLinearGradient(0, basket.y, 0, basket.y + basket.h);
+        grad.addColorStop(0, "#7dd3fc");
+        grad.addColorStop(1, "#0ea5e9");
+        ctx.fillStyle = grad;
+        roundRect(x0, basket.y, basket.w, basket.h, 8);
+        ctx.fill();
+
+        // 漂浮 +1
+        for (const pop of state.pops) {
+          ctx.globalAlpha = Math.max(0, pop.life / 0.7);
+          ctx.fillStyle = "#fbbf24";
+          ctx.font = "bold 16px Consolas, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(pop.text, pop.x, pop.y);
+        }
+        ctx.globalAlpha = 1;
+
+        // HUD
+        const left = Math.max(0, DURATION - state.time);
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "13px Consolas, monospace";
+        ctx.fillText(`${left.toFixed(1)}s`, 14, 24);
+
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "bold 18px Consolas, monospace";
+        ctx.fillText(String(state.score), W - 14, 26);
+
+        // 时间条
+        const ratio = state.time / DURATION;
+        ctx.fillStyle = "rgba(56, 189, 248, .18)";
+        ctx.fillRect(14, 34, W - 28, 4);
+        ctx.fillStyle = ratio > 0.8 ? "#f87171" : "#38bdf8";
+        ctx.fillRect(14, 34, (W - 28) * (1 - ratio), 4);
+      }
+
+      function roundRect(x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+
+      /* ------------------------------------------------------------ 输入 */
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          keys.add(event.key);
+        }
+        if (event.key === " " && state.phase !== "playing") {
+          event.preventDefault();
+          start();
+        }
+      });
+      window.addEventListener("keyup", (event) => keys.delete(event.key));
+
+      canvas.addEventListener("mousemove", (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = (event.clientX - rect.left) * (W / rect.width);
+        basket.x = clamp(x, basket.w / 2, W - basket.w / 2);
+      });
+
+      canvas.addEventListener("touchmove", (event) => {
+        const touch = event.touches[0];
+        if (!touch) return;
+        event.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const x = (touch.clientX - rect.left) * (W / rect.width);
+        basket.x = clamp(x, basket.w / 2, W - basket.w / 2);
+      }, { passive: false });
+
+      startBtn.addEventListener("click", start);
+      draw();
+    })();
+  </script>
+</body>
+</html>
