@@ -71,7 +71,6 @@
         phase: "idle",          // idle | playing | done
         time: 0,
         score: 0,
-        combo: 0,
         coins: [],
         pops: [],
         spawnIn: 0.4,
@@ -87,7 +86,6 @@
       function reset() {
         state.time = 0;
         state.score = 0;
-        state.combo = 0;
         state.coins = [];
         state.pops = [];
         state.spawnIn = 0.4;
@@ -116,7 +114,7 @@
           <div class="panel">
             <h1>时间到</h1>
             <div class="big">${best}</div>
-            <p>枚金币</p>
+            <p>金币</p>
             <button id="againBtn">再来一局</button>
             ${MG.embedded() ? '<button id="backBtn" class="ghost">返回商店</button>' : ""}
           </div>`;
@@ -185,16 +183,13 @@
 
           if (hit) {
             state.coins.splice(i, 1);
-            state.score += 1;
-            state.combo += 1;
-            if (state.combo % 10 === 0) state.score += 1;   // 每 10 连击额外 +1
-            state.pops.push({ x: coin.x, y: top - 6, life: 0.7, text: "+1" });
+            state.score += 10;   // 每接住 1 枚 = 10 金币
+            state.pops.push({ x: coin.x, y: top - 6, life: 0.7, text: "+10" });
             continue;
           }
 
           if (coin.y > H + 20) {
             state.coins.splice(i, 1);
-            state.combo = 0;
           }
         }
 

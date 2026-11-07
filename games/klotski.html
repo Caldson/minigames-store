@@ -269,13 +269,14 @@
         stopTimer();
 
         const seconds = elapsedSeconds();
-        const score = Math.max(30, Math.min(500, Math.round(600 - moves * 3 - seconds * 2)));
+        // 满分 1000 金币（= 1.00 VTX）：步数和时间扣分，最低保底 60
+        const score = Math.max(60, Math.min(1000, Math.round(1200 - moves * 6 - seconds * 4)));
 
         overlay.innerHTML = `
           <div>
             <h2>拼好了！</h2>
             <div class="big">+${score}</div>
-            <p>${moves} 步 · ${seconds} 秒</p>
+            <p>金币 · ${moves} 步 · ${seconds} 秒</p>
             <button id="againBtn">再来一局</button>
             ${MG.embedded() ? '<button id="backBtn" class="ghost">返回商店</button>' : ""}
           </div>`;

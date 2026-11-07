@@ -51,7 +51,7 @@
 <body>
   <div class="shell">
     <div class="hud">
-      <span>得分 <b id="score">0</b></span>
+      <span>金币 <b id="score">0</b></span>
       <span class="spacer"></span>
       <span>剩余豆子 <b id="left">0</b></span>
     </div>
@@ -256,7 +256,7 @@
 
         pellets.delete(key);
         pelletsLeft -= 1;
-        score += 1;
+        score += 10;   // 每颗豆 = 10 金币
         scoreEl.textContent = String(score);
         leftEl.textContent = String(pelletsLeft);
 
@@ -314,11 +314,8 @@
       function win() {
         phase = "win";
         cancelAnimationFrame(raf);
-        const total = score + 10;
-        score = total;
-        scoreEl.textContent = String(total);
-        showEnd("全部吃完了！", total, true);
-        MG.report("pacman", total);
+        showEnd("全部吃完了！", score, true);
+        MG.report("pacman", score);
       }
 
       function showEnd(title, points, won) {
@@ -326,7 +323,7 @@
           <div>
             <h1>${title}</h1>
             <div class="big">+${points}</div>
-            <p>${won ? "通关奖励 +10" : "再来一局试试"}</p>
+            <p>${won ? "金币" : "金币，再来一局试试"}</p>
             <button id="againBtn">再来一局</button>
             ${MG.embedded() ? '<button id="backBtn" class="ghost">返回商店</button>' : ""}
           </div>`;

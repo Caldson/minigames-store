@@ -15,26 +15,28 @@
   const COINS_PER_PACKET = 1000;
   const VTX_PER_PACKET = 1.0;
 
+  /* 游戏报上来的 score 就是金币数（各自按自己的规则换算好），
+     这里不再乘系数，直接记进存档。1000 金币 = 1 红包 = 1.00 VTX。 */
   const GAMES = [
     {
       id: "coincatcher",
       name: "接金币",
       icon: "🪙",
-      desc: "左右移动篮子，45 秒内接住尽可能多的金币。",
+      desc: "左右移动篮子，45 秒内接住尽可能多的金币。每接住 1 枚 = 10 金币。",
       file: "games/coincatcher.html",
     },
     {
       id: "klotski",
       name: "数字华容道",
       icon: "🔢",
-      desc: "滑动数字块，把 1–15 按顺序排好。步数越少、越快，金币越多。",
+      desc: "把 1–15 按顺序排好，同一行/列的块可以整排推。最多 1000 金币（1.00 VTX）。",
       file: "games/klotski.html",
     },
     {
       id: "pacman",
       name: "吃豆人",
       icon: "👻",
-      desc: "吃掉迷宫里的所有豆子，别被幽灵抓到。",
+      desc: "吃掉迷宫里的豆子，别被幽灵抓到。每颗豆 = 10 金币。",
       file: "games/pacman.html",
     },
   ];
